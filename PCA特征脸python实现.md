@@ -48,89 +48,81 @@ $m = \frac{1}{M}\sum_{i=1}^{M}T_i$ ,这个是计算均值在python中可以使�
 ### python代码  
 
 
-    import numpy as np
-    import cv2 as cv
-    import os
-    import tkinter as tk
-    import tkinter.filedialog
-    from PIL import Image, ImageTk
-    IMAGE_SIZE =(50,50)
-    # 1、加载训练集中的脸，转为一个M行N列矩阵T  
-    def createDatabase(path):
-        # 查看路径下所有文件
-        TrainFiles = os.listdir(path)
-        # 计算有几个文件（图片命名都是以 序号.jpg方式）减去Thumbs.db
-        Train_Number = len(TrainFiles) -1
-        T = []
-        # 把所有图片转为1-D并存入T中
-        for i in range(1,Train_Number+1):
-            image = cv.imread(path+'/'+str(i)+'.jpg',cv.IMREAD_GRAYSCALE)
-            image=cv.resize(image,IMAGE_SIZE)
-            # 转为1-D
-            image = image.reshape(image.size,1)
-            T.append(image)        
-        T = np.array(T)
-        # 不能直接T.reshape(T.shape[1],T.shape[0]) 这样会打乱顺序，
-        T = T.reshape(T.shape[0],T.shape[1])
-        return np.mat(T).T   
-        
-      
-    def eigenfaceCore(T):
-        # 2、对T进行0均值化  
+    def eigenfaceCore(T, num = 100):
         # 把均值变为0 axis = 1代表对各行求均值
         m = T.mean(axis = 1)
+        m_temp = np.mean(T, axis=1).astype(np.uint8)
+        # cv.imshow("平均脸", revive(m_temp).astype(np.uint8))
+        # cv.waitKey()
         A = T-m
         L = (A.T)*(A)
+        #     L = np.cov(A,rowvar = 0)
         # 计算AT *A的 特征向量和特征值V是特征值，D是特征向量
         V, D = np.linalg.eig(L)
+        index_V = np.argsort(-V)
         L_eig = []
-        for i in range(A.shape[1]):
-    #         if V[i] >1:
-                L_eig.append(D[:,i])
+        for i in range(num):
+            L_eig.append(D[index_V[i], :])
+        # for i in range(A.shape[1]):
+        #     L_eig.append(D[:, i])
         L_eig = np.mat(np.reshape(np.array(L_eig),(-1,len(L_eig))))
-        
-        #3、找到T的投影矩阵C  
+        #print((L_eig == D.T).all)
         # 计算 A *AT的特征向量
         eigenface = A * L_eig
-        return eigenface,m,A   
-        
-        
-    def recognize(testImage, eigenface,m,A):
-        _,trainNumber = np.shape(eigenface)
-        # 4、计算投影后的矩阵P   
-        # 投影到特征脸后的
+        imgs = []
+        for i in range(5):
+            imgs.append(revive((eigenface + m)[:,i]).astype(np.uint8))
+        imgs = np.hstack(imgs)
+        # cv.imshow("eigenface", imgs)
+        # cv.waitKey()
+        return eigenface,m,A  
+
+    def recognize(testImage, eigenface,m,A, show = True):
+        #_,trainNumber = np.shape(eigenface)
         projectedImage = eigenface.T*(A)
-        # 可解决中文路径不能打开问题
+        _, trainNumber = np.shape(projectedImage)
+
         testImageArray = cv.imdecode(np.fromfile(testImage,dtype=np.uint8),cv.IMREAD_GRAYSCALE)
-        # 转为1-D
         testImageArray=cv.resize(testImageArray,IMAGE_SIZE)
         testImageArray = testImageArray.reshape(testImageArray.size,1)
         testImageArray = np.mat(np.array(testImageArray))
         differenceTestImage = testImageArray - m
-        
-        5、加载一个测试图片，并利用C矩阵也把其投影为test_P  
         projectedTestImage = eigenface.T*(differenceTestImage)
+        temp = np.matmul( eigenface, projectedTestImage)
+        if show:
+            cv.imshow("eigenface", revive(temp + m).astype(np.uint8))
+            cv.moveWindow("eigenface", 500, 500)
+            cv.waitKey()
         distance = []
-        # 6、计算test_P和P中每个样本的距离，选出最近的那个即可  
         for i in range(0, trainNumber):
-            q = projectedImage[:,i]
+            q = projectedImage[:, i]
+            # 求范式
             temp = np.linalg.norm(projectedTestImage - q)
             distance.append(temp)
-     
+
         minDistance = min(distance)
         index = distance.index(minDistance)
-        cv.imshow("recognize result",cv.imread('./TrainDatabase'+'/'+str(index+1 )+'.jpg',cv.IMREAD_GRAYSCALE))
-        cv.waitKey()
-        return index+1   
-        
-        
-    # 进行人脸识别主程序
-    def example(filename):
-        T = createDatabase('./TrainDatabase')
-        eigenface,m,A = eigenfaceCore(T)
+        res = (int)(index / 5) + 1
+        index_pgm = (index % 5) + 1
+        if show:
+            img = cv.imread('./picture/s' + str(res) + '/' + str(index_pgm) + '.pgm', cv.IMREAD_GRAYSCALE)
+            cv.imshow(str(res) + '.pgm', cv.resize(img, (92 * 3, 112 * 3)))
+            cv.waitKey()
+        return res
+
+    def mytrain():
+        T = createDatabase('./picture/')
+        with open('./model.txt', 'w') as f:
+            np.savetxt(f, T)
+
+
+    #点击选择图片时调用
+    def mytest(filename):
         testimage = filename
-        print(testimage)
-        print(recognize(testimage, eigenface,m,A))   
+        with open('./model.txt', 'r') as f:
+            T = np.loadtxt(f)
+        eigenface, m, A = eigenfaceCore(np.mat(T))
+        print(recognize(testimage, eigenface, m, A)) 
         
         
 上面就是全部的基于特征脸的人脸识别。    
